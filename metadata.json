@@ -1,0 +1,8 @@
+{
+  "name": "InspireUp",
+  "description": "Uma plataforma revolucionária de desenvolvimento pessoal que utiliza gamificação e inteligência artificial para ajudar você a alcançar seu potencial máximo.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
