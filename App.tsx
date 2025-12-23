@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  LayoutDashboard, 
-  Target, 
-  Trophy, 
-  Users, 
-  Settings, 
-  Bell, 
+import {
+  LayoutDashboard,
+  Target,
+  Trophy,
+  Users,
+  Settings,
+  Bell,
   Plus,
   Search,
   Menu,
@@ -15,129 +15,134 @@ import {
   Compass
 } from 'lucide-react';
 import { Goal, UserStats, Badge } from './types';
-import { geminiService } from './services/geminiService';
+import { apiService } from './services/apiService';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'framer-motion';
 import DashboardHeader from './components/DashboardHeader';
 import GoalCard from './components/GoalCard';
 import AICoach from './components/AICoach';
 import GoalDetails from './components/GoalDetails';
 import CommunityHub from './components/CommunityHub';
 import IdeaLibrary from './components/IdeaLibrary';
+import CustomGoalModal from './components/CustomGoalModal';
+import GoalsManager from './components/GoalsManager';
+import AchievementsView from './components/AchievementsView';
 
-const INITIAL_GOALS: Goal[] = [
-  {
-    id: '1',
-    title: 'Dominar TypeScript Profissionalmente',
-    category: 'Educação',
-    progress: 45,
-    xpValue: 800,
-    deadline: '2024-06-30',
-    steps: [
-      { id: '1-1', description: 'Entender Generics profundamente', isCompleted: true, difficulty: 'Difícil' },
-      { id: '1-2', description: 'Configurar strict mode em 3 projetos', isCompleted: true, difficulty: 'Médio' },
-      { id: '1-3', description: 'Aprender Utillity Types', isCompleted: false, difficulty: 'Fácil' },
-      { id: '1-4', description: 'Implementar Decorators customizados', isCompleted: false, difficulty: 'Difícil' },
-    ]
-  },
-  {
-    id: '2',
-    title: 'Correr uma Meia Maratona',
-    category: 'Saúde',
-    progress: 20,
-    xpValue: 1200,
-    deadline: '2024-08-15',
-    steps: [
-      { id: '2-1', description: 'Comprar tênis de corrida adequado', isCompleted: true, difficulty: 'Fácil' },
-      { id: '2-2', description: 'Correr 5km sem parar', isCompleted: false, difficulty: 'Médio' },
-      { id: '2-3', description: 'Completar plano de treino de 12 semanas', isCompleted: false, difficulty: 'Difícil' },
-    ]
-  }
-];
-
-const INITIAL_STATS: UserStats = {
-  level: 12,
-  xp: 450,
-  xpToNextLevel: 1000,
-  streak: 14,
-  rank: 128,
-  badges: []
-};
 
 const App: React.FC = () => {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [goals, setGoals] = useState<Goal[]>(INITIAL_GOALS);
-  const [stats, setStats] = useState<UserStats>(INITIAL_STATS);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string>('Carregando insights da IA...');
   const [loadingFeedback, setLoadingFeedback] = useState(false);
   const [isAdopting, setIsAdopting] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
+
+  // Queries
+  const { data: goals = [] } = useQuery<Goal[]>({
+    queryKey: ['goals'],
+    queryFn: apiService.getGoals
+  });
+
+  const { data: stats } = useQuery<UserStats>({
+    queryKey: ['stats'],
+    queryFn: apiService.getStats
+  });
+
+  // Mutations
+  const toggleStepMutation = useMutation({
+    mutationFn: ({ goalId, stepId, isCompleted }: any) => apiService.updateStep(goalId, stepId, isCompleted),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['goals'] })
+  });
+
+  const adoptGoalMutation = useMutation({
+    mutationFn: apiService.createGoal,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] }); // For potential badge unlocks
+      setActiveTab('dashboard');
+      addXP(100);
+    }
+  });
+
+  const updateStatsMutation = useMutation({
+    mutationFn: apiService.updateStats,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stats'] })
+  });
 
   const updateFeedback = useCallback(async () => {
+    if (goals.length === 0) {
+      setFeedback("Comece a adicionar metas para receber feedback personalizado!");
+      return;
+    }
     setLoadingFeedback(true);
-    const text = await geminiService.getPersonalFeedback(goals);
-    setFeedback(text);
-    setLoadingFeedback(false);
+    try {
+      const text = await apiService.getFeedback(goals);
+      setFeedback(text);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoadingFeedback(false);
+    }
   }, [goals]);
 
   useEffect(() => {
-    updateFeedback();
-  }, []);
+    if (goals.length > 0 && feedback === 'Carregando insights da IA...') {
+      updateFeedback();
+    }
+  }, [goals.length, updateFeedback]);
 
-  const handleToggleStep = (goalId: string, stepId: string) => {
-    setGoals(prev => prev.map(goal => {
-      if (goal.id !== goalId) return goal;
-      
-      const updatedSteps = goal.steps.map(step => 
-        step.id === stepId ? { ...step, isCompleted: !step.isCompleted } : step
-      );
-      
-      const completedCount = updatedSteps.filter(s => s.isCompleted).length;
-      const progress = Math.round((completedCount / updatedSteps.length) * 100);
-      
-      if (updatedSteps.find(s => s.id === stepId)?.isCompleted) {
-        addXP(50);
-      }
+  const handleToggleStep = async (goalId: string, stepId: string) => {
+    const goal = goals.find((g: Goal) => g.id === goalId);
+    if (!goal) return;
 
-      return { ...goal, steps: updatedSteps, progress };
-    }));
+    const step = goal.steps.find((s: any) => s.id === stepId);
+    if (!step) return;
+
+    const newIsCompleted = !step.isCompleted;
+    toggleStepMutation.mutate({ goalId, stepId, isCompleted: newIsCompleted });
+
+    if (newIsCompleted) {
+      addXP(50);
+    }
   };
 
   const handleAdoptGoal = async (title: string, category: any, xp: number) => {
     setIsAdopting(true);
     try {
-      const steps = await geminiService.generateLearningPath(title);
-      const newGoal: Goal = {
-        id: `goal-${Date.now()}`,
+      const suggestedSteps = await apiService.generateLearningPath(title);
+      await adoptGoalMutation.mutateAsync({
         title,
         category,
         xpValue: xp,
-        progress: 0,
         deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        steps
-      };
-      setGoals(prev => [newGoal, ...prev]);
-      setActiveTab('dashboard');
-      addXP(100); // Bônus por adotar nova meta
-    } catch (error) {
-      console.error(error);
+        steps: suggestedSteps
+      });
+    } catch (error: any) {
+      console.error("Erro ao adotar meta:", error);
+      alert(`Erro ao adotar meta: ${error.message || "Verifique a conexão com o servidor"}`);
     } finally {
       setIsAdopting(false);
     }
   };
 
-  const addXP = (amount: number) => {
-    setStats(prev => {
-      let newXp = prev.xp + amount;
-      let newLevel = prev.level;
-      if (newXp >= prev.xpToNextLevel) {
-        newXp -= prev.xpToNextLevel;
-        newLevel += 1;
-      }
-      return { ...prev, xp: newXp, level: newLevel };
-    });
+  const addXP = async (amount: number) => {
+    if (!stats) return;
+
+    let newXp = stats.xp + amount;
+    let newLevel = stats.level;
+    if (newXp >= stats.xpToNextLevel) {
+      newXp -= stats.xpToNextLevel;
+      newLevel += 1;
+    }
+
+    updateStatsMutation.mutate({ xp: newXp, level: newLevel });
   };
 
-  const selectedGoal = goals.find(g => g.id === selectedGoalId);
+  const openCustomModal = () => setIsCustomModalOpen(true);
+
+  const selectedGoal = goals.find((g: Goal) => g.id === selectedGoalId);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
@@ -179,11 +184,10 @@ const App: React.FC = () => {
                   setActiveTab(item.id);
                   setIsSidebarOpen(false);
                 }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
-                  activeTab === item.id 
-                    ? 'bg-indigo-50 text-indigo-600 shadow-sm' 
-                    : 'text-slate-500 hover:bg-slate-100'
-                }`}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === item.id
+                  ? 'bg-indigo-50 text-indigo-600 shadow-sm'
+                  : 'text-slate-500 hover:bg-slate-100'
+                  }`}
               >
                 <item.icon size={20} />
                 {item.label}
@@ -191,6 +195,7 @@ const App: React.FC = () => {
             ))}
           </nav>
         </div>
+
 
         <div className="absolute bottom-0 left-0 right-0 p-6">
           <div className="bg-slate-50 rounded-2xl p-4 flex items-center gap-3">
@@ -207,8 +212,8 @@ const App: React.FC = () => {
         <div className="hidden md:flex items-center justify-between mb-8">
           <div className="relative w-96">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder="Buscar ideias ou trilhas..."
               className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
             />
@@ -218,8 +223,8 @@ const App: React.FC = () => {
               <Bell size={20} />
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-slate-50"></span>
             </button>
-            <button 
-              onClick={() => setActiveTab('discover')}
+            <button
+              onClick={openCustomModal}
               className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all"
             >
               <Plus size={18} />
@@ -230,7 +235,7 @@ const App: React.FC = () => {
 
         {activeTab === 'dashboard' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <DashboardHeader stats={stats} />
+            {stats && <DashboardHeader stats={stats} />}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 space-y-8">
                 <AICoach feedback={feedback} loading={loadingFeedback} onRefresh={updateFeedback} />
@@ -254,7 +259,37 @@ const App: React.FC = () => {
           <IdeaLibrary onAdopt={handleAdoptGoal} isAdopting={isAdopting} />
         )}
 
-        {(activeTab !== 'dashboard' && activeTab !== 'discover') && (
+        {activeTab === 'goals' && (
+          <GoalsManager goals={goals} onSelectGoal={setSelectedGoalId} />
+        )}
+
+        {activeTab === 'achievements' && stats && (
+          <AchievementsView stats={stats} />
+        )}
+
+        {activeTab === 'community' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2">
+              <CommunityHub />
+            </div>
+            <div className="bg-white p-6 rounded-3xl border border-slate-200">
+              <h3 className="font-bold text-slate-800 mb-4">Membros Online</h3>
+              <div className="space-y-4">
+                {[1, 2, 3, 4, 5].map(i => (
+                  <div key={i} className="flex items-center gap-3">
+                    <img src={`https://picsum.photos/seed/${i + 10}/40/40`} className="w-10 h-10 rounded-full" />
+                    <div>
+                      <p className="text-sm font-bold text-slate-700">Usuário {i}</p>
+                      <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">Online</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(activeTab === 'settings') && (
           <div className="flex flex-col items-center justify-center h-96 text-slate-400">
             <LayoutDashboard size={48} className="mb-4 opacity-20" />
             <p className="text-lg font-medium">Esta seção chegará em breve na próxima atualização.</p>
@@ -262,12 +297,19 @@ const App: React.FC = () => {
         )}
 
         {selectedGoal && (
-          <GoalDetails 
-            goal={selectedGoal} 
-            onClose={() => setSelectedGoalId(null)} 
+          <GoalDetails
+            goal={selectedGoal}
+            onClose={() => setSelectedGoalId(null)}
             onToggleStep={handleToggleStep}
           />
         )}
+
+        <CustomGoalModal
+          isOpen={isCustomModalOpen}
+          onClose={() => setIsCustomModalOpen(false)}
+          onAdopt={handleAdoptGoal}
+          isAdopting={isAdopting}
+        />
       </main>
     </div>
   );

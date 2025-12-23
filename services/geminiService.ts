@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { Goal, GoalStep } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
@@ -8,18 +8,18 @@ export const geminiService = {
   async generateLearningPath(goalTitle: string): Promise<GoalStep[]> {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.0-flash",
         contents: `Crie um plano de ação detalhado com 5 passos para o objetivo: "${goalTitle}". 
         Retorne um JSON contendo uma lista de objetos com 'description' (em português) e 'difficulty' (Fácil, Médio ou Difícil).`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
+          responseJsonSchema: {
+            type: "array",
             items: {
-              type: Type.OBJECT,
+              type: "object",
               properties: {
-                description: { type: Type.STRING },
-                difficulty: { type: Type.STRING, enum: ['Fácil', 'Médio', 'Difícil'] }
+                description: { type: "string" },
+                difficulty: { type: "string", enum: ['Fácil', 'Médio', 'Difícil'] }
               },
               required: ['description', 'difficulty']
             }
@@ -47,7 +47,7 @@ export const geminiService = {
     const goalsSummary = goals.map(g => `${g.title}: ${g.progress}% concluído`).join(", ");
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.0-flash",
         contents: `Como um coach de alto desempenho, analise o progresso atual do usuário: ${goalsSummary}. 
         Forneça um feedback motivador, curto e acionável em português do Brasil. Max 100 palavras.`,
         config: {

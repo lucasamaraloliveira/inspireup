@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Goal {
+  id        String   @id @default(uuid())
+  title     String
+  category  String
+  progress  Int      @default(0)
+  deadline  String
+  xpValue   Int
+  steps     GoalStep[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model GoalStep {
+  id          String   @id @default(uuid())
+  description String
+  isCompleted Boolean  @default(false)
+  difficulty  String
+  goal        Goal     @relation(fields: [goalId], references: [id])
+  goalId      String
+}
+
+model UserStats {
+  id            Int      @id @default(1)
+  level         Int      @default(1)
+  xp            Int      @default(0)
+  xpToNextLevel Int      @default(1000)
+  streak        Int      @default(0)
+  rank          Int      @default(100)
+  badges        Badge[]
+}
+
+model Badge {
+  id          String    @id @default(uuid())
+  name        String
+  icon        String
+  description String
+  unlockedAt  DateTime?
+  userStats   UserStats @relation(fields: [userStatsId], references: [id])
+  userStatsId Int
+}
